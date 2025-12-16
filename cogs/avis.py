@@ -56,7 +56,7 @@ class AvisModal(discord.ui.Modal, title="⭐ Donner un avis sur un staff"):
             f"Commentaire : `{self.comment.value}`"
         )
 
-        embed = discord.Embed(description=content, color=0x2F3136)
+        embed = discord.Embed(description=content, color=0xFFCE00)
         embed.set_author(name="", icon_url=interaction.user.display_avatar.url)
 
         # === Envoi dans le salon ===
