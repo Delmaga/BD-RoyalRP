@@ -25,7 +25,7 @@ class AvisModal(discord.ui.Modal, title="⭐ Donner un avis sur un staff"):
         self.add_item(self.comment)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Validation des étoiles
+        # === Validation des étoiles ===
         try:
             stars = float(self.stars.value)
             if not (0.5 <= stars <= 5.0):
@@ -34,7 +34,7 @@ class AvisModal(discord.ui.Modal, title="⭐ Donner un avis sur un staff"):
             await interaction.response.send_message("`❌ Étoiles : nombre entre 0.5 et 5.0 (ex: 4.5)`", ephemeral=True)
             return
 
-        # Sauvegarde en base (optionnel, mais utile pour stats futures)
+        # === Sauvegarde en DB (optionnel mais propre) ===
         async with aiosqlite.connect("royal_bot.db") as db:
             await db.execute(
                 "INSERT INTO avis (user_id, staff_id, content, stars, guild_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
@@ -42,40 +42,38 @@ class AvisModal(discord.ui.Modal, title="⭐ Donner un avis sur un staff"):
             )
             await db.commit()
 
-        # 🔹 Génération du message visuel dans le salon
-        # Créer un embed sans couleur de bordure visible (style épuré)
-        embed = discord.Embed(
-            description=f"`Commentaire : \"{self.comment.value}\"`",
-            color=0x2F3136  # Couleur fond Discord → donne l'impression "sans bordure"
+        # === Génération du message visuel demandé ===
+        full = int(stars)
+        half = stars % 1 >= 0.5
+        empty = 5 - full - (1 if half else 0)
+        stars_display = "⭐" * full + ("🌟" if half else "") + "☆" * empty
+
+        content = (
+            f"{interaction.user.mention}\n"
+            f"\n"
+            f"Pour {self.staff.mention}\n"
+            f"A mis : {stars_display} ({stars}/5)\n"
+            f"Commentaire : `{self.comment.value}`"
         )
 
-        # Auteur avec avatar (comme demandé)
-        embed.set_author(
-            name=str(interaction.user),
-            icon_url=interaction.user.display_avatar.url
-        )
+        embed = discord.Embed(description=content, color=0x2F3136)
+        embed.set_author(name="", icon_url=interaction.user.display_avatar.url)
 
-        # Pied avec staff + étoiles
-        full_stars = int(stars)
-        has_half = stars % 1 >= 0.5
-        empty_stars = 5 - full_stars - (1 if has_half else 0)
-        star_line = "⭐" * full_stars + ("🌟" if has_half else "") + "☆" * empty_stars
-        embed.set_footer(text=f"Staff : {self.staff} • Avis : {stars}/5 • {star_line}")
-
-        # Envoi
+        # === Envoi dans le salon ===
         try:
             await self.channel.send(embed=embed)
             await interaction.response.send_message("`✅ Votre avis a été envoyé.`", ephemeral=True)
         except discord.Forbidden:
-            await interaction.response.send_message("`❌ Je ne peux pas écrire dans le salon d'avis.`", ephemeral=True)
+            await interaction.response.send_message("`❌ Je n'ai pas la permission d'envoyer ici.`", ephemeral=True)
 
+# ========== COG PRINCIPAL ==========
 class AvisStaff(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     @discord.app_commands.command(name="avis", description="Donner un avis sur un membre du staff")
     async def avis(self, interaction: discord.Interaction, staff: discord.Member):
-        # Récupérer config
+        # Récupérer la config du serveur
         async with aiosqlite.connect("royal_bot.db") as db:
             cursor = await db.execute(
                 "SELECT staff_role_id, avis_channel_id FROM avis_config WHERE guild_id = ?",
@@ -128,5 +126,6 @@ class AvisStaff(commands.Cog):
             await db.commit()
         await interaction.response.send_message(f"`✅ Salon d'avis défini : {channel.mention}`", ephemeral=True)
 
+# ========== SETUP ==========
 async def setup(bot):
     await bot.add_cog(AvisStaff(bot))
