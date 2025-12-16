@@ -2,152 +2,84 @@ import discord
 from discord.ext import commands
 import aiosqlite
 import time
+import re
 
-# --- Modal : Raison ---
-class ReasonModal(discord.ui.Modal, title="📝 Raison de la sanction"):
-    def __init__(self, member: discord.Member, duration: str, action: str):
+def parse_duration(time_str: str):
+    """Convertit '30m' en secondes. Retourne None si invalide."""
+    time_str = time_str.strip().lower()
+    match = re.fullmatch(r'(\d+)([smhd])', time_str)
+    if not match:
+        return None
+    amount, unit = match.groups()
+    amount = int(amount)
+    multipliers = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}
+    return amount * multipliers[unit]
+
+class ModoModal(discord.ui.Modal, title="🛡️ Sanctionner un membre"):
+    def __init__(self, target: discord.Member):
         super().__init__()
-        self.member = member
-        self.duration = duration
-        self.action = action
+        self.target = target
 
+        self.duration = discord.ui.TextInput(
+            label="Durée (ex: 30m, 2h, 1d)",
+            placeholder="30m → 30 minutes",
+            default="1d",
+            max_length=10
+        )
         self.reason = discord.ui.TextInput(
             label="Raison",
-            style=discord.TextStyle.long,
-            placeholder="Ex: Spam, insultes, tentative de raid...",
+            style=discord.TextStyle.paragraph,
+            placeholder="Ex: Spam, insultes, etc.",
             required=True,
             max_length=300
         )
+        self.add_item(self.duration)
         self.add_item(self.reason)
 
     async def on_submit(self, interaction: discord.Interaction):
+        duration_str = self.duration.value
         reason = self.reason.value
-        member = self.member
-        mod = interaction.user
 
-        # Appliquer l'action
-        if self.action == "ban":
-            try:
-                await interaction.guild.ban(member, reason=reason)
-                msg = f"\`✅ {member} banni ({self.duration})\`"
-            except Exception as e:
-                await interaction.response.send_message(f"\`❌ Erreur ban : {e}\`", ephemeral=True)
-                return
-        elif self.action == "mute":
-            # À compléter avec rôle "Muted"
-            msg = f"\`🔇 {member} muté ({self.duration})\`"
-        else:
-            await interaction.response.send_message("\`⚠️ Action inconnue.\`", ephemeral=True)
+        # Valider le format
+        seconds = parse_duration(duration_str)
+        if seconds is None:
+            await interaction.response.send_message("\`❌ Format de durée invalide. Utilisez 30s, 10m, 2h, 1d.\`", ephemeral=True)
+            return
+
+        # Appliquer le ban
+        try:
+            await interaction.guild.ban(self.target, reason=reason)
+            msg = f"\`✅ {self.target} banni pour {duration_str} : {reason}\`"
+        except Exception as e:
+            await interaction.response.send_message(f"\`❌ Échec du ban : {e}\`", ephemeral=True)
             return
 
         # Log en DB
         async with aiosqlite.connect("royal_bot.db") as db:
             await db.execute("""
                 INSERT INTO moderation (user_id, mod_id, action, reason, duration, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (str(member.id), str(mod.id), self.action, reason, self.duration, int(time.time())))
+                VALUES (?, ?, 'ban', ?, ?, ?)
+            """, (str(self.target.id), str(interaction.user.id), reason, duration_str, int(time.time())))
             await db.commit()
 
         await interaction.response.send_message(msg, ephemeral=True)
 
-# --- Select : Membres ---
-class MemberSelect(discord.ui.Select):
-    def __init__(self, members):
-        options = [
-            discord.SelectOption(label=str(m), value=str(m.id))
-            for m in members[:24]  # 24 + 1 bouton = 25 max
-        ]
-        super().__init__(placeholder="👤 Choisissez un membre", options=options)
-
-    async def callback(self, interaction: discord.Interaction):
-        self.view.selected_member_id = int(self.values[0])
-        self.disabled = True
-        await interaction.response.edit_message(view=self.view)
-
-# --- Select : Unité ---
-class TimeUnitSelect(discord.ui.Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="Secondes", value="s", emoji="⏱️"),
-            discord.SelectOption(label="Minutes", value="m", emoji="🕒"),
-            discord.SelectOption(label="Heures", value="h", emoji="🕖"),
-            discord.SelectOption(label="Jours", value="d", emoji="📅"),
-        ]
-        super().__init__(placeholder="⏳ Unité", options=options)
-
-    async def callback(self, interaction: discord.Interaction):
-        self.view.time_unit = self.values[0]
-        self.disabled = True
-        await interaction.response.edit_message(view=self.view)
-
-# --- Modal : Quantité ---
-class TimeAmountModal(discord.ui.Modal, title="🔢 Durée"):
-    def __init__(self, view):
-        super().__init__()
-        self.view = view
-        self.amount = discord.ui.TextInput(label="Valeur (ex: 30)", max_length=4)
-        self.add_item(self.amount)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            val = int(self.amount.value)
-            if val <= 0:
-                raise ValueError
-            self.view.time_amount = val
-            await interaction.response.send_message("\`✅ Durée enregistrée.\`", ephemeral=True)
-        except:
-            await interaction.response.send_message("\`❌ Nombre invalide.\`", ephemeral=True)
-
-# --- Vue principale ---
-class ModerationView(discord.ui.View):
-    def __init__(self, members, action):
-        super().__init__(timeout=180)
-        self.selected_member_id = None
-        self.time_amount = None
-        self.time_unit = None
-        self.action = action
-
-        self.add_item(MemberSelect(members))
-        self.add_item(TimeUnitSelect())
-
-    @discord.ui.button(label="🔢 Entrer la durée", style=discord.ButtonStyle.grey, row=2)
-    async def input_time(self, interaction: discord.Interaction, _):
-        await interaction.response.send_modal(TimeAmountModal(self))
-
-    @discord.ui.button(label="✅ Appliquer", style=discord.ButtonStyle.red, row=2)
-    async def apply(self, interaction: discord.Interaction, _):
-        if not all([self.selected_member_id, self.time_amount, self.time_unit]):
-            await interaction.response.send_message("\`❌ Tous les champs requis.\`", ephemeral=True)
-            return
-
-        member = interaction.guild.get_member(self.selected_member_id)
-        if not member:
-            await interaction.response.send_message("\`❌ Membre introuvable.\`", ephemeral=True)
-            return
-
-        duration = f"{self.time_amount}{self.time_unit}"
-        await interaction.response.send_modal(ReasonModal(member, duration, self.action))
-
-# --- Commande /modo ---
-class ModerationUI(commands.Cog):
+class ModerationSimple(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @discord.app_commands.command(name="modo", description="Interface visuelle de modération")
+    @discord.app_commands.command(name="modo", description="Bannir un membre via interface")
     @discord.app_commands.checks.has_permissions(ban_members=True)
-    async def modo(self, interaction: discord.Interaction):
-        members = [m for m in interaction.guild.members if not m.bot and m != interaction.user]
-        if not members:
-            await interaction.response.send_message("\`📭 Aucun membre à sanctionner.\`", ephemeral=True)
+    async def modo(self, interaction: discord.Interaction, membre: discord.Member):
+        if membre == interaction.user:
+            await interaction.response.send_message("\`❌ Vous ne pouvez pas vous sanctionner.\`", ephemeral=True)
+            return
+        if membre.top_role >= interaction.user.top_role:
+            await interaction.response.send_message("\`❌ Permission insuffisante.\`", ephemeral=True)
             return
 
-        view = ModerationView(members, action="ban")
-        embed = discord.Embed(
-            title="🛡️ Interface de Modération",
-            description="Sélectionnez un membre, une durée, puis appliquez une sanction.",
-            color=0xFF5555
-        )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        modal = ModoModal(membre)
+        await interaction.response.send_modal(modal)
 
 async def setup(bot):
-    await bot.add_cog(ModerationUI(bot))
+    await bot.add_cog(ModerationSimple(bot))
