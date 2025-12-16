@@ -11,7 +11,9 @@ load_dotenv()
 # Intents
 intents = discord.Intents.default()
 intents.members = True
+intents.guilds = True
 intents.message_content = True
+intents.presences = True  # Pour détecter bots online/offline
 
 # Créer le bot
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
