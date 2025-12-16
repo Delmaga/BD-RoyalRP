@@ -1,14 +1,19 @@
 # main.py
 import os
-from dotenv import load_dotenv
 import discord
 from discord.ext import commands
 
-load_dotenv()
+# Essaye d'abord de charger depuis .env (uniquement en local)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # En production, dotenv n'est pas installé → pas grave
+    pass
 
 TOKEN = os.getenv('DISCORD_TOKEN')
 if not TOKEN:
-    raise RuntimeError("❌ Le token DISCORD_TOKEN n'est pas défini dans les variables d'environnement.")
+    raise RuntimeError("❌ La variable d'environnement DISCORD_TOKEN est manquante.")
 
 intents = discord.Intents.default()
 intents.members = True
