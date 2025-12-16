@@ -5,7 +5,6 @@ import time
 import re
 
 def parse_duration(time_str: str):
-    """Convertit '30m' en secondes. Retourne None si invalide."""
     time_str = time_str.strip().lower()
     match = re.fullmatch(r'(\d+)([smhd])', time_str)
     if not match:
@@ -40,21 +39,18 @@ class ModoModal(discord.ui.Modal, title="🛡️ Sanctionner un membre"):
         duration_str = self.duration.value
         reason = self.reason.value
 
-        # Valider le format
         seconds = parse_duration(duration_str)
         if seconds is None:
-            await interaction.response.send_message("\`❌ Format de durée invalide. Utilisez 30s, 10m, 2h, 1d.\`", ephemeral=True)
+            await interaction.response.send_message("`❌ Format de durée invalide. Utilisez 30s, 10m, 2h, 1d.`", ephemeral=True)
             return
 
-        # Appliquer le ban
         try:
             await interaction.guild.ban(self.target, reason=reason)
-            msg = f"\`✅ {self.target} banni pour {duration_str} : {reason}\`"
+            msg = f"`✅ {self.target} banni pour {duration_str} : {reason}`"
         except Exception as e:
-            await interaction.response.send_message(f"\`❌ Échec du ban : {e}\`", ephemeral=True)
+            await interaction.response.send_message(f"`❌ Échec du ban : {e}`", ephemeral=True)
             return
 
-        # Log en DB
         async with aiosqlite.connect("royal_bot.db") as db:
             await db.execute("""
                 INSERT INTO moderation (user_id, mod_id, action, reason, duration, timestamp)
@@ -72,14 +68,13 @@ class ModerationSimple(commands.Cog):
     @discord.app_commands.checks.has_permissions(ban_members=True)
     async def modo(self, interaction: discord.Interaction, membre: discord.Member):
         if membre == interaction.user:
-            await interaction.response.send_message("\`❌ Vous ne pouvez pas vous sanctionner.\`", ephemeral=True)
+            await interaction.response.send_message("`❌ Vous ne pouvez pas vous sanctionner.`", ephemeral=True)
             return
         if membre.top_role >= interaction.user.top_role:
-            await interaction.response.send_message("\`❌ Permission insuffisante.\`", ephemeral=True)
+            await interaction.response.send_message("`❌ Permission insuffisante.`", ephemeral=True)
             return
 
-        modal = ModoModal(membre)
-        await interaction.response.send_modal(modal)
+        await interaction.response.send_modal(ModoModal(membre))
 
 async def setup(bot):
     await bot.add_cog(ModerationSimple(bot))

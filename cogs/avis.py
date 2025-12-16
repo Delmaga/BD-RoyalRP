@@ -29,7 +29,7 @@ class AvisModal(discord.ui.Modal, title="⭐ Donner un avis sur un staff"):
             if not (0.5 <= stars <= 5.0):
                 raise ValueError
         except:
-            await interaction.response.send_message("\`❌ Étoiles : nombre entre 0.5 et 5.0 (ex: 4.5)\`", ephemeral=True)
+            await interaction.response.send_message("`❌ Étoiles : nombre entre 0.5 et 5.0 (ex: 4.5)`", ephemeral=True)
             return
 
         async with aiosqlite.connect("royal_bot.db") as db:
@@ -40,18 +40,16 @@ class AvisModal(discord.ui.Modal, title="⭐ Donner un avis sur un staff"):
             await db.commit()
 
         await interaction.response.send_message(
-            f"\`⭐ Merci ! Votre avis ({stars} étoiles) sur {self.staff} a été enregistré.\`",
+            f"`⭐ Merci ! Votre avis ({stars} étoiles) sur {self.staff} a été enregistré.`",
             ephemeral=True
         )
 
-class AvisSimple(commands.Cog):
+class AvisStaff(commands.Cog):
     @discord.app_commands.command(name="avis", description="Donner un avis sur un membre du staff")
     async def avis(self, interaction: discord.Interaction, staff: discord.Member):
-        # Vérifie si le rôle staff est configuré (optionnel, ou tu peux bypass)
-        modal = AvisModal(staff)
-        await interaction.response.send_modal(modal)
+        await interaction.response.send_modal(AvisModal(staff))
 
-    @discord.app_commands.command(name="avis role", description="Définir le rôle staff")
+    @discord.app_commands.command(name="avis_role", description="Définir le rôle staff pour les avis")
     @discord.app_commands.checks.has_permissions(administrator=True)
     async def avis_role(self, interaction: discord.Interaction, role: discord.Role):
         async with aiosqlite.connect("royal_bot.db") as db:
@@ -61,9 +59,9 @@ class AvisSimple(commands.Cog):
                 ON CONFLICT(guild_id) DO UPDATE SET staff_role_id = ?
             """, (str(interaction.guild.id), str(role.id), str(role.id)))
             await db.commit()
-        await interaction.response.send_message(f"\`✅ Rôle staff défini : {role.name}\`", ephemeral=True)
+        await interaction.response.send_message(f"`✅ Rôle staff défini : {role.name}`", ephemeral=True)
 
-    @discord.app_commands.command(name="avis list", description="Voir les avis d'un staff")
+    @discord.app_commands.command(name="avis_list", description="Voir les avis d'un membre du staff")
     async def avis_list(self, interaction: discord.Interaction, staff: discord.Member):
         async with aiosqlite.connect("royal_bot.db") as db:
             cursor = await db.execute(
@@ -73,14 +71,14 @@ class AvisSimple(commands.Cog):
             rows = await cursor.fetchall()
 
         if not rows:
-            await interaction.response.send_message(f"\`📭 Aucun avis pour {staff}.\`", ephemeral=False)
+            await interaction.response.send_message(f"`📭 Aucun avis pour {staff}.`", ephemeral=False)
             return
 
         avg = sum(r[0] for r in rows) / len(rows)
-        lines = [f"\`⭐ Avis pour {staff} — Moyenne : {avg:.1f}/5.0\`"]
+        lines = [f"`⭐ Avis pour {staff} — Moyenne : {avg:.1f}/5.0`"]
         for stars, content, user_id in rows:
-            lines.append(f"\`• {stars}⭐ par <@{user_id}> : \"{content}\"\`")
+            lines.append(f"`• {stars}⭐ par <@{user_id}> : \"{content}\"`")
         await interaction.response.send_message("\n".join(lines), ephemeral=False)
 
 async def setup(bot):
-    await bot.add_cog(AvisSimple(bot))
+    await bot.add_cog(AvisStaff(bot))
