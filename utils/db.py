@@ -1,22 +1,22 @@
 import aiosqlite
 import os
 
-# Chemin de la base de données (fonctionne sur Railway et en local)
+# Chemin de la base de données (fonctionne en local et sur Railway)
 DB_PATH = os.getenv("DATABASE_URL", "royal_bot.db")
 
 async def init_db():
-    """Crée toutes les tables nécessaires au premier démarrage."""
+    """Initialise toutes les tables nécessaires au démarrage du bot."""
     async with aiosqlite.connect(DB_PATH) as db:
-        # Table : Modération (ban, mute, warn)
+        # Table : Logs de modération (ban, mute, warn)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS moderation (
-                id INTEGER PRIMARY KEY,
-                user_id TEXT,
-                mod_id TEXT,
-                action TEXT,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                mod_id TEXT NOT NULL,
+                action TEXT NOT NULL,      -- 'ban', 'mute', 'warn'
                 reason TEXT,
-                duration TEXT,
-                timestamp INTEGER,
+                duration TEXT,             -- '30m', '2d', etc.
+                timestamp INTEGER NOT NULL,
                 active INTEGER DEFAULT 1
             )
         """)
@@ -24,27 +24,23 @@ async def init_db():
         # Table : Avis sur le staff
         await db.execute("""
             CREATE TABLE IF NOT EXISTS avis (
-                id INTEGER PRIMARY KEY,
-                user_id TEXT,
-                staff_id TEXT,
-                content TEXT,
-                stars REAL,
-                guild_id TEXT,
-                timestamp INTEGER
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                staff_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                stars REAL NOT NULL,
+                guild_id TEXT NOT NULL,
+                timestamp INTEGER NOT NULL
             )
         """)
 
-        # Table : Configuration du système d'avis (rôle staff par serveur)
+        # Table : Configuration par serveur (rôle staff + salon avis)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS avis_config (
                 guild_id TEXT PRIMARY KEY,
-                staff_role_id TEXT
+                staff_role_id TEXT,
+                avis_channel_id TEXT
             )
         """)
-
-        # (Optionnel) Tu peux ajouter ici d'autres tables plus tard :
-        # - tickets
-        # - welcome config
-        # - etc.
 
         await db.commit()
