@@ -6,8 +6,8 @@ import io
 import os
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-# Chemin de l'image de fond (doit exister dans assets/)
-BG_PATH = "assets/welcome_bg.png"
+# Chemin de ton image JPG 1024x500
+BG_PATH = "assets/welcome_bg.jpg"
 
 class WelcomeConfigModal(discord.ui.Modal, title="🛠️ Salon de bienvenue"):
     def __init__(self, guild_id: str):
@@ -41,51 +41,54 @@ class WelcomeConfigModal(discord.ui.Modal, title="🛠️ Salon de bienvenue"):
         await interaction.response.send_message(f"`✅ Salon défini : {channel.mention}`", ephemeral=True)
 
 def generate_welcome_image(member_name: str, avatar_bytes: bytes) -> io.BytesIO:
-    """Génère une image de bienvenue sans dépendance externe."""
+    """Génère une image de bienvenue avec fond 1024x500 JPG."""
     if not os.path.exists(BG_PATH):
         raise FileNotFoundError("Fichier assets/welcome_bg.jpg manquant")
 
-    # Charger le fond
-    bg = Image.open(BG_PATH).convert("RGBA")
-    
-    # Charger et recadrer l'avatar en cercle
+    # Charger le fond JPG
+    bg = Image.open(BG_PATH).convert("RGB")  # JPG → RGB (pas d'alpha)
+
+    # Charger l'avatar
     avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
     avatar = avatar.resize((200, 200), Image.LANCZOS)
 
+    # Masque circulaire
     mask = Image.new("L", (200, 200), 0)
     draw_mask = ImageDraw.Draw(mask)
     draw_mask.ellipse((0, 0, 200, 200), fill=255)
     avatar.putalpha(mask)
 
-    # Coller l'avatar au centre
-    x = (bg.width - 200) // 2
-    y = 120
-    bg.paste(avatar, (x, y), avatar)
+    # Positionner l'avatar au centre (largeur 1024 → x = (1024-200)/2 = 412)
+    x_avatar = (bg.width - 200) // 2
+    y_avatar = 150  # ajuste selon ta photo (tu peux tester 120, 150, 180)
+    bg_rgba = bg.convert("RGBA")
+    bg_rgba.paste(avatar, (x_avatar, y_avatar), avatar)
 
     # Ajouter le texte
-    draw = ImageDraw.Draw(bg)
-    text = f"{member_name.upper()}. A Rejoin Royal-RP"
-    
-    # Utiliser la police système ou une police de secours
+    draw = ImageDraw.Draw(bg_rgba)
+    text = f"{member_name.upper()}. A Rejoint Royal RP"
+
     try:
-        font = ImageFont.truetype("assets/arial.ttf", 48)
+        font = ImageFont.truetype("assets/arial.ttf", 48)  # taille adaptée à 1024px
     except:
         font = ImageFont.load_default()
 
-    # Centrer le texte
     bbox = draw.textbbox((0, 0), text, font=font)
     text_width = bbox[2] - bbox[0]
     x_text = (bg.width - text_width) // 2
-    y_text = 420
+    y_text = 420  # ajuste ici pour que le texte soit bien en bas (essaye 400, 420, 440)
 
-    # Contour + texte principal
+    # Contour noir + texte or
     draw.text((x_text - 2, y_text - 2), text, fill="black", font=font)
     draw.text((x_text + 2, y_text + 2), text, fill="black", font=font)
     draw.text((x_text, y_text), text, fill="gold", font=font)
 
-    # Exporter
+    # Convertir en RGB pour sauvegarder (PNG pour qualité)
+    final_image = bg_rgba.convert("RGB")
+
+    # Sauvegarder en mémoire
     buffer = io.BytesIO()
-    bg.save(buffer, format="JPG")
+    final_image.save(buffer, format="PNG")
     buffer.seek(0)
     return buffer
 
@@ -111,24 +114,17 @@ class WelcomeCog(commands.Cog):
             return
 
         try:
-            # Télécharger l'avatar
             avatar_url = member.display_avatar.replace(size=512).url
             async with self.bot.session.get(avatar_url) as resp:
-                if resp.status == 200:
-                    avatar_data = await resp.read()
-                else:
-                    raise Exception("Avatar non accessible")
-            
-            # Générer l'image
+                avatar_data = await resp.read()
+
             image_buffer = generate_welcome_image(member.name, avatar_data)
-            file = discord.File(image_buffer, filename="welcome.jpg")
+            file = discord.File(image_buffer, filename="welcome.png")
             await channel.send(file=file)
 
         except Exception as e:
-            # En cas d'erreur, message de secours
             await channel.send(f"`⚙️ Bienvenue {member.mention} ! (Image désactivée)`")
 
-        # Donner le rôle
         if role_id:
             role = member.guild.get_role(int(role_id))
             if role and role < member.guild.me.top_role:
@@ -179,7 +175,7 @@ class WelcomeCog(commands.Cog):
             async with self.bot.session.get(avatar_url) as resp:
                 avatar_data = await resp.read()
             image_buffer = generate_welcome_image(interaction.user.name, avatar_data)
-            file = discord.File(image_buffer, filename="welcome_test.jpg")
+            file = discord.File(image_buffer, filename="welcome_test.png")
             await channel.send(file=file)
             await interaction.response.send_message("`✅ Test envoyé.`", ephemeral=True)
         except Exception as e:
