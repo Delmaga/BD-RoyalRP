@@ -6,24 +6,24 @@ import os
 DB_PATH = os.getenv("DATABASE_URL", "royal_bot.db")
 
 async def init_db():
-    """Initialise toutes les tables nécessaires au démarrage du bot."""
+    """Crée toutes les tables nécessaires au démarrage."""
     async with aiosqlite.connect(DB_PATH) as db:
 
-        # ========== MODÉRATION ==========
+        # ---------- MODÉRATION ----------
         await db.execute("""
             CREATE TABLE IF NOT EXISTS moderation (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
                 mod_id TEXT NOT NULL,
-                action TEXT NOT NULL,      -- 'ban', 'mute', 'warn'
+                action TEXT NOT NULL,
                 reason TEXT NOT NULL,
-                duration TEXT,             -- NULL pour 'warn'
+                duration TEXT,
                 timestamp INTEGER NOT NULL,
                 active INTEGER DEFAULT 1
             )
         """)
 
-        # ========== AVIS SUR LE STAFF ==========
+        # ---------- AVIS ----------
         await db.execute("""
             CREATE TABLE IF NOT EXISTS avis (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +36,6 @@ async def init_db():
             )
         """)
 
-        # ========== CONFIGURATION AVIS ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS avis_config (
                 guild_id TEXT PRIMARY KEY,
@@ -45,7 +44,7 @@ async def init_db():
             )
         """)
 
-        # ========== CONFIGURATION WELCOME ==========
+        # ---------- WELCOME ----------
         await db.execute("""
             CREATE TABLE IF NOT EXISTS welcome_config (
                 guild_id TEXT PRIMARY KEY,
@@ -54,7 +53,7 @@ async def init_db():
             )
         """)
 
-        # ========== TICKETS ==========
+        # ---------- TICKETS ----------
         await db.execute("""
             CREATE TABLE IF NOT EXISTS ticket_categories (
                 guild_id TEXT NOT NULL,
@@ -66,9 +65,9 @@ async def init_db():
         await db.execute("""
             CREATE TABLE IF NOT EXISTS ticket_config (
                 guild_id TEXT PRIMARY KEY,
-                ping_role_id TEXT
+                ping_role_id TEXT,
+                ticket_counter INTEGER DEFAULT 1
             )
         """)
 
-        # Appliquer les changements
         await db.commit()
