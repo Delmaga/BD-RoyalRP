@@ -1,27 +1,26 @@
+# utils/db.py
 import aiosqlite
 import os
 
-# Chemin de la base de données (fonctionne en local et sur Railway)
 DB_PATH = os.getenv("DATABASE_URL", "royal_bot.db")
 
 async def init_db():
-    """Initialise toutes les tables nécessaires au démarrage du bot."""
     async with aiosqlite.connect(DB_PATH) as db:
-        # Table : Logs de modération (ban, mute, warn)
+        # Modération
         await db.execute("""
             CREATE TABLE IF NOT EXISTS moderation (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
                 mod_id TEXT NOT NULL,
-                action TEXT NOT NULL,      -- 'ban', 'mute', 'warn'
+                action TEXT NOT NULL,
                 reason TEXT,
-                duration TEXT,             -- '30m', '2d', etc.
+                duration TEXT,
                 timestamp INTEGER NOT NULL,
                 active INTEGER DEFAULT 1
             )
         """)
 
-        # Table : Avis sur le staff
+        # Avis
         await db.execute("""
             CREATE TABLE IF NOT EXISTS avis (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,12 +33,23 @@ async def init_db():
             )
         """)
 
-        # Table : Configuration par serveur (rôle staff + salon avis)
+        # Config avis
         await db.execute("""
             CREATE TABLE IF NOT EXISTS avis_config (
                 guild_id TEXT PRIMARY KEY,
                 staff_role_id TEXT,
                 avis_channel_id TEXT
+            )
+        """)
+
+        # ✅ CONFIG WELCOME (essentielle)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS welcome_config (
+                guild_id TEXT PRIMARY KEY,
+                channel_id TEXT,
+                role_id TEXT,
+                title TEXT,
+                description TEXT
             )
         """)
 

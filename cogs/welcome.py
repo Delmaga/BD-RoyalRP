@@ -1,41 +1,28 @@
+# cogs/welcome.py
 import discord
 from discord.ext import commands
 import aiosqlite
 
 class WelcomeConfigModal(discord.ui.Modal, title="🛠️ Configuration du message de bienvenue"):
-    def __init__(self, bot, guild_id):
+    def __init__(self, guild_id: str):
         super().__init__()
-        self.bot = bot
         self.guild_id = guild_id
 
-        # Charger les valeurs actuelles
-        self.current_data = {}
-        self.load_current()
-
+        # Valeurs par défaut simples (pas de chargement async dans __init__)
         self.title_input = discord.ui.TextInput(
             label="Titre",
-            default=self.current_data.get("title", "Bienvenue !"),
+            default="Bienvenue !",
             max_length=100
         )
         self.description_input = discord.ui.TextInput(
             label="Description",
             style=discord.TextStyle.paragraph,
-            default=self.current_data.get("description", "Bienvenue sur le serveur, {user} !"),
+            default="Bienvenue sur le serveur, {user} !",
             max_length=500,
-            placeholder="Utilisez {user} pour mentionner le membre"
+            placeholder="Utilisez {user} pour mentionner le nouveau membre"
         )
         self.add_item(self.title_input)
         self.add_item(self.description_input)
-
-    async def load_current(self):
-        async with aiosqlite.connect("royal_bot.db") as db:
-            cursor = await db.execute(
-                "SELECT title, description FROM welcome_config WHERE guild_id = ?",
-                (self.guild_id,)
-            )
-            row = await cursor.fetchone()
-            if row:
-                self.current_data = {"title": row[0] or "", "description": row[1] or ""}
 
     async def on_submit(self, interaction: discord.Interaction):
         title = self.title_input.value
@@ -51,7 +38,7 @@ class WelcomeConfigModal(discord.ui.Modal, title="🛠️ Configuration du messa
             """, (self.guild_id, title, description))
             await db.commit()
 
-        await interaction.response.send_message("`✅ Message de bienvenue configuré.`", ephemeral=True)
+        await interaction.response.send_message("`✅ Message de bienvenue mis à jour.`", ephemeral=True)
 
 class WelcomeCog(commands.Cog):
     def __init__(self, bot):
@@ -60,6 +47,9 @@ class WelcomeCog(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         guild = member.guild
+        if not guild:
+            return
+
         async with aiosqlite.connect("royal_bot.db") as db:
             cursor = await db.execute(
                 "SELECT channel_id, role_id, title, description FROM welcome_config WHERE guild_id = ?",
@@ -67,25 +57,26 @@ class WelcomeCog(commands.Cog):
             )
             row = await cursor.fetchone()
 
-        if not row or not row[0]:
-            return  # Pas configuré
+        if not row:
+            return
 
         channel_id, role_id, title, description = row
 
-        # 1. Envoyer le message
-        channel = guild.get_channel(int(channel_id))
-        if channel:
-            content = description.replace("{user}", member.mention)
-            embed = discord.Embed(
-                title=title,
-                description=content,
-                color=0x5865F2
-            )
-            embed.set_thumbnail(url=member.display_avatar.url)
-            try:
-                await channel.send(embed=embed)
-            except:
-                pass  # Ignore si pas perm
+        # 1. Envoyer le message de bienvenue
+        if channel_id:
+            channel = guild.get_channel(int(channel_id))
+            if channel:
+                content = description.replace("{user}", member.mention)
+                embed = discord.Embed(
+                    title=title,
+                    description=content,
+                    color=0x5865F2
+                )
+                embed.set_thumbnail(url=member.display_avatar.url)
+                try:
+                    await channel.send(embed=embed)
+                except:
+                    pass  # Ignore si pas perm
 
         # 2. Donner le rôle
         if role_id:
@@ -96,13 +87,13 @@ class WelcomeCog(commands.Cog):
                 except:
                     pass
 
-    @discord.app_commands.command(name="welcome", description="Configurer le message de bienvenue")
+    @discord.app_commands.command(name="welcome", description="Configurer le titre et la description du message de bienvenue")
     @discord.app_commands.checks.has_permissions(administrator=True)
     async def welcome(self, interaction: discord.Interaction):
-        modal = WelcomeConfigModal(self.bot, str(interaction.guild.id))
+        modal = WelcomeConfigModal(str(interaction.guild.id))
         await interaction.response.send_modal(modal)
 
-    @discord.app_commands.command(name="welcome_role", description="Définir le rôle à donner à l'arrivée")
+    @discord.app_commands.command(name="welcome_role", description="Définir le rôle à donner aux nouveaux membres")
     @discord.app_commands.checks.has_permissions(administrator=True)
     async def welcome_role(self, interaction: discord.Interaction, role: discord.Role):
         async with aiosqlite.connect("royal_bot.db") as db:
@@ -125,13 +116,13 @@ class WelcomeCog(commands.Cog):
             row = await cursor.fetchone()
 
         if not row or not row[0]:
-            await interaction.response.send_message("`❌ Le salon de bienvenue n'est pas configuré.`", ephemeral=True)
+            await interaction.response.send_message("`❌ Configurez d'abord le salon avec /welcome.`", ephemeral=True)
             return
 
         channel_id, title, description = row
         channel = interaction.guild.get_channel(int(channel_id))
         if not channel:
-            await interaction.response.send_message("`❌ Salon introuvable.`", ephemeral=True)
+            await interaction.response.send_message("`❌ Salon de bienvenue introuvable.`", ephemeral=True)
             return
 
         content = description.replace("{user}", interaction.user.mention)
