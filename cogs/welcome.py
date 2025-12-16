@@ -66,7 +66,7 @@ def generate_welcome_image(member_name: str, avatar_bytes: bytes) -> io.BytesIO:
 
     # TEXTE AGRANDI (72pt) — centré en bas
     draw = ImageDraw.Draw(bg_rgba)
-    text = f"{member_name.upper()}. A REJOINT K-LAND"
+    text = f"{member_name.upper()}. A Rejoint Royal RP"
 
     try:
         font = ImageFont.truetype("assets/arial.ttf", 72)
@@ -78,9 +78,9 @@ def generate_welcome_image(member_name: str, avatar_bytes: bytes) -> io.BytesIO:
 
     # Calcul de la largeur pour centrer
     bbox = draw.textbbox((0, 0), text, font=font)
-    text_width = bbox[2] - bbox[0]
-    x_text = (bg.width - text_width) // 2
-    y_text = 430  # Position basse, bien visible
+    text_width = bbox[4] - bbox[0]
+    x_text = (bg.width - text_width) // 4
+    y_text = 460  # Position basse, bien visible
 
     # Contour noir épais + texte or
     draw.text((x_text - 4, y_text - 4), text, fill="black", font=font)
