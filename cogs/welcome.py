@@ -43,7 +43,7 @@ class WelcomeConfigModal(discord.ui.Modal, title="🛠️ Salon de bienvenue"):
 def generate_welcome_image(member_name: str, avatar_bytes: bytes) -> io.BytesIO:
     """Génère une image de bienvenue sans dépendance externe."""
     if not os.path.exists(BG_PATH):
-        raise FileNotFoundError("Fichier assets/welcome_bg.png manquant")
+        raise FileNotFoundError("Fichier assets/welcome_bg.jpg manquant")
 
     # Charger le fond
     bg = Image.open(BG_PATH).convert("RGBA")
@@ -64,7 +64,7 @@ def generate_welcome_image(member_name: str, avatar_bytes: bytes) -> io.BytesIO:
 
     # Ajouter le texte
     draw = ImageDraw.Draw(bg)
-    text = f"{member_name.upper()}. A REJOINT K-LAND"
+    text = f"{member_name.upper()}. A Rejoin Royal-RP"
     
     # Utiliser la police système ou une police de secours
     try:
@@ -85,7 +85,7 @@ def generate_welcome_image(member_name: str, avatar_bytes: bytes) -> io.BytesIO:
 
     # Exporter
     buffer = io.BytesIO()
-    bg.save(buffer, format="PNG")
+    bg.save(buffer, format="JPG")
     buffer.seek(0)
     return buffer
 
@@ -121,7 +121,7 @@ class WelcomeCog(commands.Cog):
             
             # Générer l'image
             image_buffer = generate_welcome_image(member.name, avatar_data)
-            file = discord.File(image_buffer, filename="welcome.png")
+            file = discord.File(image_buffer, filename="welcome.jpg")
             await channel.send(file=file)
 
         except Exception as e:
@@ -179,7 +179,7 @@ class WelcomeCog(commands.Cog):
             async with self.bot.session.get(avatar_url) as resp:
                 avatar_data = await resp.read()
             image_buffer = generate_welcome_image(interaction.user.name, avatar_data)
-            file = discord.File(image_buffer, filename="welcome_test.png")
+            file = discord.File(image_buffer, filename="welcome_test.jpg")
             await channel.send(file=file)
             await interaction.response.send_message("`✅ Test envoyé.`", ephemeral=True)
         except Exception as e:
