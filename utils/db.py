@@ -2,25 +2,28 @@
 import aiosqlite
 import os
 
+# Chemin de la base de données (fonctionne en local et sur Railway)
 DB_PATH = os.getenv("DATABASE_URL", "royal_bot.db")
 
 async def init_db():
+    """Crée toutes les tables nécessaires au démarrage du bot."""
     async with aiosqlite.connect(DB_PATH) as db:
-        # Modération
+        
+        # ========== MODÉRATION ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS moderation (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
                 mod_id TEXT NOT NULL,
-                action TEXT NOT NULL,
-                reason TEXT,
-                duration TEXT,
+                action TEXT NOT NULL,      -- 'ban', 'mute', 'warn'
+                reason TEXT NOT NULL,
+                duration TEXT,             -- NULL pour 'warn'
                 timestamp INTEGER NOT NULL,
                 active INTEGER DEFAULT 1
             )
         """)
 
-        # Avis
+        # ========== AVIS SUR LE STAFF ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS avis (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,7 +36,7 @@ async def init_db():
             )
         """)
 
-        # Config avis
+        # ========== CONFIGURATION AVIS (rôle + salon) ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS avis_config (
                 guild_id TEXT PRIMARY KEY,
@@ -42,15 +45,15 @@ async def init_db():
             )
         """)
 
-        # ✅ CONFIG WELCOME (essentielle)
+        # ========== CONFIGURATION WELCOME (salon + rôle) ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS welcome_config (
                 guild_id TEXT PRIMARY KEY,
                 channel_id TEXT,
-                role_id TEXT,
-                title TEXT,
-                description TEXT
+                role_id TEXT
+                -- Pas besoin de titre/description car tout est dans l'image
             )
         """)
 
+        # Valider toutes les modifications
         await db.commit()
