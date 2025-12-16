@@ -1,19 +1,21 @@
 # main.py
 import os
+import json
 import discord
 from discord.ext import commands
 
-# Essaye d'abord de charger depuis .env (uniquement en local)
+# Charger le token depuis config.json
 try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    # En production, dotenv n'est pas installé → pas grave
-    pass
+    with open("config.json", "r") as f:
+        config = json.load(f)
+    TOKEN = config.get("token")
+except FileNotFoundError:
+    print("❌ Fichier config.json manquant.")
+    exit(1)
 
-TOKEN = os.getenv('DISCORD_TOKEN')
 if not TOKEN:
-    raise RuntimeError("❌ La variable d'environnement DISCORD_TOKEN est manquante.")
+    print("❌ Token non défini dans config.json")
+    exit(1)
 
 intents = discord.Intents.default()
 intents.members = True

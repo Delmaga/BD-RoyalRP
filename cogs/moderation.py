@@ -3,16 +3,14 @@ import discord
 from discord.ext import commands, tasks
 import json
 import os
-import asyncio
-from datetime import datetime, timedelta
 import re
+from datetime import datetime, timedelta
 
 DATA_DIR = "data"
 BANS_FILE = os.path.join(DATA_DIR, "bans.json")
 MUTES_FILE = os.path.join(DATA_DIR, "mutes.json")
 WARNS_FILE = os.path.join(DATA_DIR, "warns.json")
 
-# Crée le dossier data si inexistant
 os.makedirs(DATA_DIR, exist_ok=True)
 
 def load_json(file):
@@ -28,9 +26,6 @@ def save_json(file, data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 def parse_time(time_str):
-    """
-    Parse une chaîne comme '5s', '10m', '2h', '3D', '1M', '2Y' → timedelta
-    """
     total_seconds = 0
     matches = re.findall(r'(\d+)([smhD])', time_str)
     for amount, unit in matches:
@@ -43,10 +38,6 @@ def parse_time(time_str):
             total_seconds += amount * 3600
         elif unit == 'D':
             total_seconds += amount * 86400
-    # Pour les mois/années, on approxime (car pas exact dans timedelta)
-    # Mais on les ignore ici pour simplicité et stabilité
-    if 'M' in time_str or 'Y' in time_str:
-        return None  # On ne gère que s, m, h, D
     return timedelta(seconds=total_seconds) if total_seconds > 0 else None
 
 class Moderation(commands.Cog):
@@ -59,37 +50,32 @@ class Moderation(commands.Cog):
 
     @tasks.loop(seconds=30)
     async def check_temp_tasks(self):
-        """Vérifie régulièrement les bannissements et mutes temporaires à lever"""
+        """Vérifie les bannissements et mutes temporaires"""
+        now = datetime.utcnow().timestamp()
         # Unban
         bans = load_json(BANS_FILE)
         changed = False
-        now = datetime.utcnow().timestamp()
         for guild_id in list(bans.keys()):
             guild = self.bot.get_guild(int(guild_id))
-            if not guild:
-                continue
+            if not guild: continue
             for user_id in list(bans[guild_id].keys()):
                 data = bans[guild_id][user_id]
                 if data["until"] and now >= data["until"]:
                     try:
                         user = discord.Object(id=int(user_id))
-                        await guild.unban(user, reason="Durée de ban temporaire expirée")
-                    except:
-                        pass
+                        await guild.unban(user, reason="Durée expirée")
+                    except: pass
                     del bans[guild_id][user_id]
                     changed = True
-            if not bans[guild_id]:
-                del bans[guild_id]
-        if changed:
-            save_json(BANS_FILE, bans)
+            if not bans[guild_id]: del bans[guild_id]
+        if changed: save_json(BANS_FILE, bans)
 
         # Unmute
         mutes = load_json(MUTES_FILE)
         changed = False
         for guild_id in list(mutes.keys()):
             guild = self.bot.get_guild(int(guild_id))
-            if not guild:
-                continue
+            if not guild: continue
             for user_id in list(mutes[guild_id].keys()):
                 data = mutes[guild_id][user_id]
                 if data["until"] and now >= data["until"]:
@@ -97,20 +83,17 @@ class Moderation(commands.Cog):
                     if member:
                         mute_role = discord.utils.get(guild.roles, name="Muted")
                         if mute_role and mute_role in member.roles:
-                            await member.remove_roles(mute_role, reason="Durée de mute expirée")
+                            await member.remove_roles(mute_role, reason="Durée expirée")
                     del mutes[guild_id][user_id]
                     changed = True
-            if not mutes[guild_id]:
-                del mutes[guild_id]
-        if changed:
-            save_json(MUTES_FILE, mutes)
+            if not mutes[guild_id]: del mutes[guild_id]
+        if changed: save_json(MUTES_FILE, mutes)
 
     @commands.Cog.listener()
     async def on_ready(self):
-        # Créer le rôle Muted si absent
         for guild in self.bot.guilds:
             if not discord.utils.get(guild.roles, name="Muted"):
-                mute_role = await guild.create_role(name="Muted", reason="Créé par Royal Bot")
+                mute_role = await guild.create_role(name="Muted")
                 for channel in guild.channels:
                     if isinstance(channel, discord.TextChannel):
                         await channel.set_permissions(mute_role, send_messages=False, add_reactions=False)
@@ -120,41 +103,23 @@ class Moderation(commands.Cog):
             return ctx.author.guild_permissions.kick_members or ctx.author.guild_permissions.ban_members
         return commands.check(predicate)
 
-    # === COMMANDES ===
-
     @commands.command(name="ban")
     @is_moderator()
     async def ban(self, ctx, member: discord.Member, time: str, *, reason: str = "Aucune raison"):
+        if member == ctx.author or member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
+            await ctx.send("`❌` Action refusée.")
+            return
         duration = parse_time(time)
-        if duration is None and time.lower() not in ["permanent", "perm", "p"]:
-            await ctx.send("`❌` Format de durée invalide. Utilisez : `5s`, `10m`, `2h`, `3D`.")
+        if not duration and time.lower() not in ["permanent", "perm", "p"]:
+            await ctx.send("`❌` Durée invalide. Utilise: `5s`, `10m`, `2h`, `3D` ou `perm`.")
             return
-
-        if member == ctx.author:
-            await ctx.send("`❌` Vous ne pouvez pas vous bannir vous-même.")
-            return
-        if member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
-            await ctx.send("`❌` Vous ne pouvez pas bannir cet utilisateur (hiérarchie des rôles).")
-            return
-
-        # Appliquer le ban
         await member.ban(reason=reason)
         now = datetime.utcnow()
-
-        # Sauvegarder
         bans = load_json(BANS_FILE)
         guild_id = str(ctx.guild.id)
         user_id = str(member.id)
-        if guild_id not in bans:
-            bans[guild_id] = {}
-
-        if duration:
-            until = (now + duration).timestamp()
-            human_time = f"dans {time}"
-        else:
-            until = None
-            human_time = "permanent"
-
+        if guild_id not in bans: bans[guild_id] = {}
+        until = (now + duration).timestamp() if duration else None
         bans[guild_id][user_id] = {
             "user_name": str(member),
             "moderator": str(ctx.author),
@@ -163,37 +128,24 @@ class Moderation(commands.Cog):
             "until": until
         }
         save_json(BANS_FILE, bans)
-
-        await ctx.send(f"`✅` {member} a été banni ({human_time}) • **Raison** : {reason}")
+        human_until = "permanent" if not duration else f"dans {time}"
+        await ctx.send(f"`✅` {member} banni ({human_until}) • Raison: {reason}")
 
     @commands.command(name="unban")
     @is_moderator()
-    async def unban(self, ctx, user: str):
+    async def unban(self, ctx, user_id: int):
         try:
-            user_id = int(user) if user.isdigit() else None
-            if not user_id:
-                # Essayer de trouver par mention ou pseudo (moins fiable pour les bans)
-                await ctx.send("`ℹ️` Veuillez fournir l'ID de l'utilisateur à débannir.")
-                return
-
+            user = discord.Object(id=user_id)
+            await ctx.guild.unban(user)
             bans = load_json(BANS_FILE)
             guild_id = str(ctx.guild.id)
-            user_str = str(user_id)
-
-            # Supprimer du fichier
-            if guild_id in bans and user_str in bans[guild_id]:
-                del bans[guild_id][user_str]
-                if not bans[guild_id]:
-                    del bans[guild_id]
+            if guild_id in bans and str(user_id) in bans[guild_id]:
+                del bans[guild_id][str(user_id)]
+                if not bans[guild_id]: del bans[guild_id]
                 save_json(BANS_FILE, bans)
-
-            try:
-                await ctx.guild.unban(discord.Object(id=user_id))
-                await ctx.send(f"`✅` Utilisateur (ID: `{user_id}`) débanni.")
-            except discord.NotFound:
-                await ctx.send("`⚠️` L'utilisateur n'était pas banni, mais son entrée a été nettoyée.")
+            await ctx.send(f"`✅` Utilisateur (ID: `{user_id}`) débanni.")
         except Exception as e:
-            await ctx.send(f"`❌` Erreur : {e}")
+            await ctx.send(f"`❌` Erreur: {e}")
 
     @commands.command(name="banlist")
     @is_moderator()
@@ -203,7 +155,6 @@ class Moderation(commands.Cog):
         if guild_id not in bans or not bans[guild_id]:
             await ctx.send("`ℹ️` Aucun utilisateur banni.")
             return
-
         embed = discord.Embed(title="📜 Liste des bannissements", color=0xff5555)
         for user_id, data in bans[guild_id].items():
             user_str = data["user_name"]
@@ -224,35 +175,24 @@ class Moderation(commands.Cog):
     @commands.command(name="mute")
     @is_moderator()
     async def mute(self, ctx, member: discord.Member, time: str, *, reason: str = "Aucune raison"):
-        if member == ctx.author:
-            await ctx.send("`❌` Vous ne pouvez pas vous mutez vous-même.")
+        if member == ctx.author or member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
+            await ctx.send("`❌` Action refusée.")
             return
-        if member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
-            await ctx.send("`❌` Vous ne pouvez pas mute cet utilisateur.")
-            return
-
         duration = parse_time(time)
-        if duration is None:
-            await ctx.send("`❌` Format de durée invalide. Utilisez : `5s`, `10m`, `2h`, `3D`.")
+        if not duration:
+            await ctx.send("`❌` Durée invalide. Utilise: `5s`, `10m`, `2h`, `3D`.")
             return
-
-        # Vérifier/obtenir rôle Muted
         mute_role = discord.utils.get(ctx.guild.roles, name="Muted")
         if not mute_role:
             mute_role = await ctx.guild.create_role(name="Muted")
             for channel in ctx.guild.channels:
                 if isinstance(channel, discord.TextChannel):
                     await channel.set_permissions(mute_role, send_messages=False, add_reactions=False)
-
         await member.add_roles(mute_role, reason=reason)
-
-        # Sauvegarder
         mutes = load_json(MUTES_FILE)
         guild_id = str(ctx.guild.id)
         user_id = str(member.id)
-        if guild_id not in mutes:
-            mutes[guild_id] = {}
-
+        if guild_id not in mutes: mutes[guild_id] = {}
         until = (datetime.utcnow() + duration).timestamp()
         mutes[guild_id][user_id] = {
             "user_name": str(member),
@@ -262,9 +202,8 @@ class Moderation(commands.Cog):
             "until": until
         }
         save_json(MUTES_FILE, mutes)
-
         human_until = datetime.fromtimestamp(until).strftime("%d/%m/%Y %H:%M")
-        await ctx.send(f"`✅` {member} a été mute jusqu'au {human_until} • **Raison** : {reason}")
+        await ctx.send(f"`✅` {member} mute jusqu'au {human_until} • Raison: {reason}")
 
     @commands.command(name="unmute")
     @is_moderator()
@@ -273,19 +212,14 @@ class Moderation(commands.Cog):
         if not mute_role or mute_role not in member.roles:
             await ctx.send("`⚠️` Cet utilisateur n'est pas mute.")
             return
-
         await member.remove_roles(mute_role, reason="Unmute manuel")
-
-        # Supprimer du fichier
         mutes = load_json(MUTES_FILE)
         guild_id = str(ctx.guild.id)
         user_id = str(member.id)
         if guild_id in mutes and user_id in mutes[guild_id]:
             del mutes[guild_id][user_id]
-            if not mutes[guild_id]:
-                del mutes[guild_id]
+            if not mutes[guild_id]: del mutes[guild_id]
             save_json(MUTES_FILE, mutes)
-
         await ctx.send(f"`✅` {member} n'est plus mute.")
 
     @commands.command(name="mutelist")
@@ -296,7 +230,6 @@ class Moderation(commands.Cog):
         if guild_id not in mutes or not mutes[guild_id]:
             await ctx.send("`ℹ️` Aucun utilisateur mute.")
             return
-
         embed = discord.Embed(title="🔇 Liste des mutes", color=0xffaa00)
         for user_id, data in mutes[guild_id].items():
             user_str = data["user_name"]
@@ -316,15 +249,11 @@ class Moderation(commands.Cog):
         if member == ctx.author:
             await ctx.send("`❌` Vous ne pouvez pas vous avertir vous-même.")
             return
-
         warns = load_json(WARNS_FILE)
         guild_id = str(ctx.guild.id)
         user_id = str(member.id)
-        if guild_id not in warns:
-            warns[guild_id] = {}
-        if user_id not in warns[guild_id]:
-            warns[guild_id][user_id] = []
-
+        if guild_id not in warns: warns[guild_id] = {}
+        if user_id not in warns[guild_id]: warns[guild_id][user_id] = []
         warn_entry = {
             "reason": reason,
             "moderator": str(ctx.author),
@@ -332,8 +261,7 @@ class Moderation(commands.Cog):
         }
         warns[guild_id][user_id].append(warn_entry)
         save_json(WARNS_FILE, warns)
-
-        await ctx.send(f"`⚠️` {member} a été averti • **Raison** : {reason}")
+        await ctx.send(f"`⚠️` {member} a été averti • Raison: {reason}")
 
     @commands.command(name="unwarn")
     @is_moderator()
@@ -341,17 +269,12 @@ class Moderation(commands.Cog):
         warns = load_json(WARNS_FILE)
         guild_id = str(ctx.guild.id)
         user_id = str(member.id)
-
         if guild_id not in warns or user_id not in warns[guild_id]:
             await ctx.send("`ℹ️` Cet utilisateur n'a aucun avertissement.")
             return
-
         before_count = len(warns[guild_id][user_id])
-        warns[guild_id][user_id] = [
-            w for w in warns[guild_id][user_id] if w["reason"] != reason_to_remove
-        ]
+        warns[guild_id][user_id] = [w for w in warns[guild_id][user_id] if w["reason"] != reason_to_remove]
         after_count = len(warns[guild_id][user_id])
-
         if before_count == after_count:
             await ctx.send("`❌` Aucun avertissement avec cette raison n'a été trouvé.")
         else:
@@ -367,29 +290,23 @@ class Moderation(commands.Cog):
     async def warnlist(self, ctx, member: discord.Member = None):
         warns = load_json(WARNS_FILE)
         guild_id = str(ctx.guild.id)
-
         if member is None:
-            # Lister tous les warns du serveur
             if guild_id not in warns or not warns[guild_id]:
                 await ctx.send("`ℹ️` Aucun avertissement sur ce serveur.")
                 return
-
             embed = discord.Embed(title="⚠️ Liste de tous les avertissements", color=0xffdd00)
             for uid, entries in warns[guild_id].items():
                 user_str = "Inconnu"
                 user = ctx.guild.get_member(int(uid))
-                if user:
-                    user_str = str(user)
+                if user: user_str = str(user)
                 reasons = "\n".join([f"- {e['reason']} (par {e['moderator']})" for e in entries])
                 embed.add_field(name=f"{user_str} (ID: {uid})", value=reasons[:1024], inline=False)
             await ctx.send(embed=embed)
         else:
-            # Lister les warns d’un membre
             user_id = str(member.id)
             if guild_id not in warns or user_id not in warns[guild_id]:
                 await ctx.send(f"`ℹ️` {member} n’a aucun avertissement.")
                 return
-
             embed = discord.Embed(title=f"⚠️ Avertissements — {member}", color=0xffdd00)
             for entry in warns[guild_id][user_id]:
                 at = datetime.fromtimestamp(entry["at"]).strftime("%d/%m/%Y %H:%M")
@@ -400,6 +317,5 @@ class Moderation(commands.Cog):
                 )
             await ctx.send(embed=embed)
 
-# Setup
 async def setup(bot):
     await bot.add_cog(Moderation(bot))
