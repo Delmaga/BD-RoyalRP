@@ -2,13 +2,13 @@
 import aiosqlite
 import os
 
-# Chemin de la base de données (fonctionne en local et sur Railway)
+# Chemin de la base de données
 DB_PATH = os.getenv("DATABASE_URL", "royal_bot.db")
 
 async def init_db():
-    """Crée toutes les tables nécessaires au démarrage du bot."""
+    """Initialise toutes les tables nécessaires au démarrage du bot."""
     async with aiosqlite.connect(DB_PATH) as db:
-        
+
         # ========== MODÉRATION ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS moderation (
@@ -36,7 +36,7 @@ async def init_db():
             )
         """)
 
-        # ========== CONFIGURATION AVIS (rôle + salon) ==========
+        # ========== CONFIGURATION AVIS ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS avis_config (
                 guild_id TEXT PRIMARY KEY,
@@ -45,15 +45,30 @@ async def init_db():
             )
         """)
 
-        # ========== CONFIGURATION WELCOME (salon + rôle) ==========
+        # ========== CONFIGURATION WELCOME ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS welcome_config (
                 guild_id TEXT PRIMARY KEY,
                 channel_id TEXT,
                 role_id TEXT
-                -- Pas besoin de titre/description car tout est dans l'image
             )
         """)
 
-        # Valider toutes les modifications
+        # ========== TICKETS ==========
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS ticket_categories (
+                guild_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                PRIMARY KEY (guild_id, name)
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS ticket_config (
+                guild_id TEXT PRIMARY KEY,
+                ping_role_id TEXT
+            )
+        """)
+
+        # Appliquer les changements
         await db.commit()
