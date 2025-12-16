@@ -1,37 +1,26 @@
-# main.py
-import os
-import json
 import discord
 from discord.ext import commands
+import os
+from dotenv import load_dotenv
+from utils.db import init_db
 
-# Charger le token depuis config.json
-try:
-    with open("config.json", "r") as f:
-        config = json.load(f)
-    TOKEN = config.get("token")
-except FileNotFoundError:
-    print("❌ Fichier config.json manquant.")
-    exit(1)
-
-if not TOKEN:
-    print("❌ Token non défini dans config.json")
-    exit(1)
+load_dotenv()
 
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix='/', intents=intents, case_insensitive=True)
-bot.remove_command('help')
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f"✅ Royal Bot connecté en tant que {bot.user}")
+    await init_db()
+    await bot.tree.sync()
+    print(f"✅ Royal Bot connecté : {bot.user}")
 
-async def main():
-    await bot.load_extension("cogs.moderation")
-    await bot.start(TOKEN)
+# Charger les cogs
+for filename in os.listdir("./cogs"):
+    if filename.endswith(".py"):
+        bot.load_extension(f"cogs.{filename[:-3]}")
 
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+bot.run(os.getenv("DISCORD_TOKEN"))
