@@ -1,6 +1,6 @@
+import os
 import discord
 from discord.ext import commands
-import os
 import traceback
 from dotenv import load_dotenv
 from utils.db import init_db
