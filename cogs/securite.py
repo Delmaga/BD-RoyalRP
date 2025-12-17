@@ -1,235 +1,299 @@
-# cogs/securite.py (extrait amélioré)
-
+# cogs/securite.py
 import discord
 from discord.ext import commands
 import aiosqlite
 import re
 from datetime import datetime, timedelta
 
+# Stockage temporaire du spam (RAM)
 user_message_history = {}
 
-# === BEAUTY UTILS ===
-def format_timestamp(dt: datetime = None):
+# === UTILITAIRES DE FORMATAGE ===
+def format_time(dt: datetime = None) -> str:
     if dt is None:
         dt = datetime.now()
     return dt.strftime("%d/%m %H:%M:%S")
 
-def safe_content(content: str, max_len=150):
-    content = content.replace("`", "'")
-    if len(content) > max_len:
-        return content[:max_len] + "…"
-    return content
+def safe_truncate(text: str, max_len: int = 180) -> str:
+    text = str(text).replace("`", "'").replace("\n", " ")
+    return (text[:max_len] + "…") if len(text) > max_len else text
 
-# === ANTI-LIEN AMÉLIORÉ ===
-def contains_forbidden_content(message: discord.Message) -> bool:
-    # 1. Texte brut
-    text = message.content.lower()
-    if re.search(r'https?://|www\.|discord\.(gg|com/invite)', text):
+# === DÉTECTION DE CONTENU NON AUTORISÉ ===
+def is_forbidden_content(message: discord.Message) -> bool:
+    # 1. Texte contenant des liens ou mots clés dangereux
+    content = message.content.lower()
+    if re.search(r'https?://|www\.|discord\.(gg|com/invite)|\.exe|\.bat|\.dll|\.zip|\.rar', content):
         return True
 
-    # 2. Extensions de fichiers
-    dangerous_ext = ('.gif', '.exe', '.bat', '.dll', '.zip', '.rar', '.mp4', '.webm', '.mov')
-    if any(ext in text for ext in dangerous_ext):
+    # 2. Extensions média non autorisées (GIF, vidéos, etc.)
+    if re.search(r'\.(gif|mp4|webm|mov|avi|mkv|flv|swf)', content):
         return True
 
     # 3. Embeds (souvent utilisés pour contourner)
-    for embed in message.embeds:
-        if embed.url or embed.image or embed.video:
-            return True
+    if message.embeds:
+        return True
 
-    # 4. Pièces jointes non autorisées
-    for attach in message.attachments:
-        if not attach.filename.lower().endswith(('.txt', '.png', '.jpg', '.jpeg')):
+    # 4. Pièces jointes non texte/image
+    for att in message.attachments:
+        if not att.filename.lower().endswith(('.txt', '.png', '.jpg', '.jpeg')):
             return True
 
     return False
 
-# === LOGS AMÉLIORÉS ===
+# === COG PRINCIPAL ===
 class SecurityCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.voice_join_times = {}
+        self.voice_join_times = {}  # {user_id: datetime}
 
-    async def get_security_config(self, guild_id):
+    async def get_config(self, guild_id: str):
         async with aiosqlite.connect("royal_bot.db") as db:
-            cursor = await db.execute(
-                "SELECT anti_spam, anti_links, logs_spam, logs_links, logs_messages, logs_vocal, logs_suspect, logs_admin FROM security_config WHERE guild_id = ?",
-                (str(guild_id),)
-            )
+            cursor = await db.execute("""
+                SELECT anti_spam, anti_links, logs_spam, logs_links,
+                       logs_messages, logs_vocal, logs_suspect, logs_admin
+                FROM security_config WHERE guild_id = ?
+            """, (guild_id,))
             row = await cursor.fetchone()
             if row:
-                return {k: v for k, v in zip([
-                    "anti_spam", "anti_links", "logs_spam", "logs_links",
-                    "logs_messages", "logs_vocal", "logs_suspect", "logs_admin"
-                ], row)}
-            return {k: None for k in ["anti_spam", "anti_links", "logs_spam", "logs_links", "logs_messages", "logs_vocal", "logs_suspect", "logs_admin"]}
+                return {
+                    "anti_spam": bool(row[0]),
+                    "anti_links": bool(row[1]),
+                    "logs_spam": row[2],
+                    "logs_links": row[3],
+                    "logs_messages": row[4],
+                    "logs_vocal": row[5],
+                    "logs_suspect": row[6],
+                    "logs_admin": row[7]
+                }
+            return {k: None for k in ["anti_spam", "anti_links", "logs_spam", "logs_links",
+                                      "logs_messages", "logs_vocal", "logs_suspect", "logs_admin"]}
 
-    async def log(self, guild, channel_id, content):
+    async def send_log(self, guild: discord.Guild, channel_id: str, content: str):
         if channel_id:
             channel = guild.get_channel(int(channel_id))
             if channel:
-                await channel.send(content)
+                try:
+                    await channel.send(content)
+                except:
+                    pass
 
-    # --- LOGS MESSAGES (BEAU) ---
-    def build_message_log(self, author, channel, content, reply_to=None):
-        reply = f" ↝ **répond à** {reply_to}" if reply_to else ""
-        return (
-            f"`💬 {format_timestamp()}`\n"
-            f"**{author}**{reply}\n"
-            f"**Salon :** {channel.mention}\n"
-            f"**Contenu :**\n> `{safe_content(content)}`"
-        )
-
-    # --- LOGS SPAM (BEAU) ---
-    def build_spam_log(self, author, channel, messages):
-        msgs = "\n".join(f"> `{safe_content(m)}`" for _, m in messages[:4])
-        return (
-            f"`🚨 SPAM — {format_timestamp()}`\n"
-            f"**{author}** a envoyé **{len(messages)} messages** en 5s\n"
-            f"**Salon :** {channel.mention}\n"
-            f"**Messages :**\n{msgs}"
-        )
-
-    # --- LOGS LIENS (BEAU) ---
-    def build_link_log(self, author, channel, content):
-        return (
-            f"`🔗 LIEN BLOQUÉ — {format_timestamp()}`\n"
-            f"**{author}** a tenté d’envoyer du contenu non autorisé\n"
-            f"**Salon :** {channel.mention}\n"
-            f"**Contenu :**\n> `{safe_content(content)}`"
-        )
-
-    # --- LOGS VOCAL (BEAU) ---
-    def build_vocal_log(self, member, action, channel_name, duration=None):
-        base = f"`🎧 {format_timestamp()}` — **{member}** {action} **{channel_name}**"
-        if duration:
-            base += f" (**⏱️ {duration}**)"
-        return base
-
-    # --- ÉVÉNEMENTS ---
+    # ---------- ÉCOUTE DES MESSAGES ----------
     @commands.Cog.listener()
-    async def on_message(self, message):
+    async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
             return
 
-        config = await self.get_security_config(message.guild.id)
+        config = await self.get_config(str(message.guild.id))
 
-        # ANTI-SPAM
-        if config.get("anti_spam"):
+        # --- ANTI-SPAM ---
+        if config["anti_spam"]:
             now = datetime.now()
             uid = message.author.id
             if uid not in user_message_history:
                 user_message_history[uid] = []
             user_message_history[uid].append((now, message.content))
+            # Garder les messages des 5 dernières secondes
             user_message_history[uid] = [
                 (ts, c) for ts, c in user_message_history[uid]
                 if now - ts < timedelta(seconds=5)
             ]
             if len(user_message_history[uid]) >= 4:
                 await message.delete()
-                await self.log(
-                    message.guild,
-                    config.get("logs_spam"),
-                    self.build_spam_log(message.author, message.channel, user_message_history[uid])
+                log_msg = (
+                    f"`🚨 SPAM — {format_time()}`\n"
+                    f"**{message.author}** a envoyé **{len(user_message_history[uid])} messages** en 5s\n"
+                    f"**Salon :** {message.channel.mention}\n"
+                    f"**Contenu :**\n" +
+                    "\n".join(f"> `{safe_truncate(c)}`" for _, c in user_message_history[uid][:4])
                 )
+                await self.send_log(message.guild, config["logs_spam"], log_msg)
                 return
 
-        # ANTI-LIEN (CORRIGÉ)
-        if config.get("anti_links") and contains_forbidden_content(message):
+        # --- ANTI-LIEN (CORRIGÉ) ---
+        if config["anti_links"] and is_forbidden_content(message):
             await message.delete()
-            await self.log(
-                message.guild,
-                config.get("logs_links"),
-                self.build_link_log(message.author, message.channel, message.content or "[Pièce jointe/Embed]")
+            log_msg = (
+                f"`🔗 LIEN BLOQUÉ — {format_time()}`\n"
+                f"**{message.author}** a tenté d’envoyer du contenu non autorisé\n"
+                f"**Salon :** {message.channel.mention}\n"
+                f"**Contenu :**\n> `{safe_truncate(message.content or '[Embed/Pièce jointe]')}`"
             )
+            await self.send_log(message.guild, config["logs_links"], log_msg)
             return
 
-        # LOGS MESSAGES
-        if config.get("logs_messages"):
-            reply_to = None
+        # --- LOGS MESSAGES ---
+        if config["logs_messages"]:
+            reply_to = ""
             if message.reference:
                 try:
-                    ref = await message.channel.fetch_message(message.reference.message_id)
-                    reply_to = ref.author
+                    ref_msg = await message.channel.fetch_message(message.reference.message_id)
+                    reply_to = f" ↝ **répond à** {ref_msg.author}"
                 except:
                     pass
-            await self.log(
-                message.guild,
-                config.get("logs_messages"),
-                self.build_message_log(message.author, message.channel, message.content, reply_to)
+            log_msg = (
+                f"`💬 {format_time()}`\n"
+                f"**{message.author}**{reply_to}\n"
+                f"**Salon :** {message.channel.mention}\n"
+                f"**Contenu :**\n> `{safe_truncate(message.content)}`"
             )
+            await self.send_log(message.guild, config["logs_messages"], log_msg)
 
-    # --- VOCAL ---
+    # ---------- ÉCOUTE DU VOCAL ----------
     @commands.Cog.listener()
-    async def on_voice_state_update(self, member, before, after):
-        config = await self.get_security_config(member.guild.id)
-        if not config.get("logs_vocal"):
+    async def on_voice_state_update(self, member: discord.Member, before, after):
+        config = await self.get_config(str(member.guild.id))
+        if not config["logs_vocal"]:
             return
 
         now = datetime.now()
+        # Entrée
         if after.channel and after.channel != before.channel:
             self.voice_join_times[member.id] = now
-            await self.log(
+            await self.send_log(
                 member.guild,
-                config.get("logs_vocal"),
-                self.build_vocal_log(member, "a rejoint", after.channel.name)
+                config["logs_vocal"],
+                f"`🎧 {format_time()}` — **{member}** a rejoint **{after.channel.name}**"
             )
+        # Sortie
         if before.channel and before.channel != after.channel:
             start = self.voice_join_times.pop(member.id, None)
-            duration = None
+            duration = ""
             if start:
                 delta = now - start
                 mins, secs = divmod(int(delta.total_seconds()), 60)
-                duration = f"{mins}m {secs}s"
-            await self.log(
+                duration = f" (**⏱️ {mins}m {secs}s**)"
+            await self.send_log(
                 member.guild,
-                config.get("logs_vocal"),
-                self.build_vocal_log(member, "a quitté", before.channel.name, duration)
+                config["logs_vocal"],
+                f"`🎧 {format_time()}` — **{member}** a quitté **{before.channel.name}**{duration}"
             )
 
-    # --- AUDIT LOG (ADMIN) — AMÉLIORÉ ---
+    # ---------- DÉTECTION COMPTE SUSPECT ----------
     @commands.Cog.listener()
-    async def on_audit_log_entry_create(self, entry):
+    async def on_member_join(self, member: discord.Member):
+        config = await self.get_config(str(member.guild.id))
+        if not config["logs_suspect"]:
+            return
+
+        if (datetime.now() - member.created_at).days < 7:
+            await self.send_log(
+                member.guild,
+                config["logs_suspect"],
+                f"`⚠️ COMPTE SUSPECT — {format_time()}`\n"
+                f"**{member}** (ID: `{member.id}`)\n"
+                f"**Créé il y a :** {(datetime.now() - member.created_at).days} jours"
+            )
+
+    # ---------- LOGS ADMIN VIA AUDIT LOG ----------
+    @commands.Cog.listener()
+    async def on_audit_log_entry_create(self, entry: discord.AuditLogEntry):
         if entry.user == self.bot.user:
             return
 
-        config = await self.get_security_config(entry.guild.id)
-        if not config.get("logs_admin"):
+        config = await self.get_config(str(entry.guild.id))
+        if not config["logs_admin"]:
             return
 
-        now = format_timestamp()
-        def send_log(title, details):
-            return self.log(entry.guild, config["logs_admin"], f"`{now}`\n`{title}`\n{details}")
+        now = format_time()
+        log_content = ""
 
         # Salon
         if entry.action == discord.AuditLogAction.channel_create:
-            await send_log("📁 SALON CRÉÉ", f"**{entry.user}** → **#{entry.target.name}**")
+            log_content = f"`📁 SALON CRÉÉ`\n**{entry.user}** → **#{entry.target.name}**"
         elif entry.action == discord.AuditLogAction.channel_delete:
-            await send_log("🗑️ SALON SUPPRIMÉ", f"**{entry.user}** → **#{getattr(entry.target, 'name', 'Inconnu')}**")
+            name = getattr(entry.target, 'name', 'Inconnu')
+            log_content = f"`🗑️ SALON SUPPRIMÉ`\n**{entry.user}** → **#{name}**"
         elif entry.action == discord.AuditLogAction.channel_update:
             if hasattr(entry.changes, 'name'):
-                await send_log("✏️ SALON RENOMMÉ", f"**{entry.user}** : `#{entry.changes.before.name}` → `#{entry.changes.after.name}`")
+                log_content = f"`✏️ SALON RENOMMÉ`\n**{entry.user}** : `#{entry.changes.before.name}` → `#{entry.changes.after.name}`"
 
         # Rôle
         elif entry.action == discord.AuditLogAction.role_create:
-            await send_log("🏷️ RÔLE CRÉÉ", f"**{entry.user}** → **@{entry.target.name}**")
+            log_content = f"`🏷️ RÔLE CRÉÉ`\n**{entry.user}** → **@{entry.target.name}**"
         elif entry.action == discord.AuditLogAction.role_delete:
-            await send_log("🗑️ RÔLE SUPPRIMÉ", f"**{entry.user}** → **@{getattr(entry.target, 'name', 'Inconnu')}**")
+            name = getattr(entry.target, 'name', 'Inconnu')
+            log_content = f"`🗑️ RÔLE SUPPRIMÉ`\n**{entry.user}** → **@{name}**"
         elif entry.action == discord.AuditLogAction.role_update:
             if hasattr(entry.changes, 'name'):
-                await send_log("✏️ RÔLE RENOMMÉ", f"**{entry.user}** : `@{entry.changes.before.name}` → `@{entry.changes.after.name}`")
+                log_content = f"`✏️ RÔLE RENOMMÉ`\n**{entry.user}** : `@{entry.changes.before.name}` → `@{entry.changes.after.name}`"
 
         # Pseudo
         elif entry.action == discord.AuditLogAction.member_update:
             if hasattr(entry.changes, 'nick'):
                 before = entry.changes.nick.before or "`Aucun`"
                 after = entry.changes.nick.after or "`Aucun`"
-                await send_log("👤 PSEUDO MODIFIÉ", f"**{entry.target}** : {before} → {after} (par **{entry.user}**)")
+                log_content = f"`👤 PSEUDO MODIFIÉ`\n**{entry.target}** : {before} → {after} (par **{entry.user}**)"
 
         # Serveur
         elif entry.action == discord.AuditLogAction.guild_update:
             if hasattr(entry.changes, 'name'):
-                await send_log("🌐 SERVEUR RENOMMÉ", f"`{entry.changes.before.name}` → `{entry.changes.after.name}` (par **{entry.user}**)")
+                log_content = f"`🌐 SERVEUR RENOMMÉ`\n`{entry.changes.before.name}` → `{entry.changes.after.name}` (par **{entry.user}**)"
 
-    # --- COMMANDES (inchangées, mais fonctionnelles) ---
-    # (incluses dans la version précédente)
+        if log_content:
+            await self.send_log(entry.guild, config["logs_admin"], f"`{now}`\n{log_content}")
+
+    # ---------- COMMANDES ADMIN ----------
+    @discord.app_commands.command(name="anti_spam", description="Activer/désactiver l'anti-spam")
+    @discord.app_commands.checks.has_permissions(administrator=True)
+    async def anti_spam(self, interaction: discord.Interaction, activer: bool):
+        await self.set_flag(interaction, "anti_spam", activer)
+
+    @discord.app_commands.command(name="anti_lien", description="Activer/désactiver l'anti-liens")
+    @discord.app_commands.checks.has_permissions(administrator=True)
+    async def anti_lien(self, interaction: discord.Interaction, activer: bool):
+        await self.set_flag(interaction, "anti_links", activer)
+
+    @discord.app_commands.command(name="logs_spam", description="Définir le salon des logs de spam")
+    @discord.app_commands.checks.has_permissions(administrator=True)
+    async def logs_spam(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        await self.set_log_channel(interaction, "logs_spam", salon)
+
+    @discord.app_commands.command(name="logs_liens", description="Définir le salon des logs de liens")
+    @discord.app_commands.checks.has_permissions(administrator=True)
+    async def logs_liens(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        await self.set_log_channel(interaction, "logs_links", salon)
+
+    @discord.app_commands.command(name="logs_message", description="Définir le salon des logs de messages")
+    @discord.app_commands.checks.has_permissions(administrator=True)
+    async def logs_message(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        await self.set_log_channel(interaction, "logs_messages", salon)
+
+    @discord.app_commands.command(name="logs_vocal", description="Définir le salon des logs vocaux")
+    @discord.app_commands.checks.has_permissions(administrator=True)
+    async def logs_vocal(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        await self.set_log_channel(interaction, "logs_vocal", salon)
+
+    @discord.app_commands.command(name="logs_suspect", description="Définir le salon des comptes suspects")
+    @discord.app_commands.checks.has_permissions(administrator=True)
+    async def logs_suspect(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        await self.set_log_channel(interaction, "logs_suspect", salon)
+
+    @discord.app_commands.command(name="logs_admin", description="Salon des logs d'administration")
+    @discord.app_commands.checks.has_permissions(administrator=True)
+    async def logs_admin(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        await self.set_log_channel(interaction, "logs_admin", salon)
+
+    # Utilitaires de sauvegarde
+    async def set_flag(self, interaction, column, value):
+        async with aiosqlite.connect("royal_bot.db") as db:
+            await db.execute(f"""
+                INSERT INTO security_config (guild_id, {column})
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET {column} = excluded.{column}
+            """, (str(interaction.guild.id), int(value)))
+            await db.commit()
+        await interaction.response.send_message(f"`✅ {column.replace('_', ' ').title()} = {value}`", ephemeral=False)
+
+    async def set_log_channel(self, interaction, column, salon):
+        async with aiosqlite.connect("royal_bot.db") as db:
+            await db.execute(f"""
+                INSERT INTO security_config (guild_id, {column})
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET {column} = excluded.{column}
+            """, (str(interaction.guild.id), str(salon.id)))
+            await db.commit()
+        await interaction.response.send_message(f"`✅ {column.replace('_', ' ').title()} → {salon.mention}`", ephemeral=False)
+
+# ========== FONCTION DE SETUP OBLIGATOIRE ==========
+async def setup(bot):
+    await bot.add_cog(SecurityCog(bot))
