@@ -11,7 +11,7 @@ class CloseTicketButton(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="CloseOperation",
+        label="Close",
         style=discord.ButtonStyle.red,
         emoji="🔒",
         custom_id="close_ticket_button"  # ← OBLIGATOIRE pour persistance
@@ -103,8 +103,8 @@ class TicketCategorySelect(discord.ui.Select):
             f"***Catégories :*** `{category_name}`\n"
             f"***Le :*** `{date_str}`\n\n"
             f"Un Staff vous prendra en charge dans les plus bref délais .\n"
-            f"Veuillez nous ***détailler votre demande***, afin que nous puissions vous répondre le mieux possible.\n"
-            f"Délais possible entre ***24-48h.***"
+            f"Veuillez nous ***détailler votre demande***, afin que nous puissions vous répondre le mieux possible 😉.\n"
+            f"🕒 Délais possible entre ***24-48h.***"
         )
 
         # Ajouter le bouton persistant
@@ -147,10 +147,10 @@ class TicketCog(commands.Cog):
         view = TicketMenuView(categories, str(interaction.guild.id), ping_role_id)
         content = (
             f"***Ticket - Royal RP***\n\n"
-            f"Sélectionnez la catégorie dont vous avez besoin.\n"
-            f"Tout ***troll*** ou ***Irrespect*** sera suivie d'un ban.\n"
-            f"Un Staff vous répondra le plus rapidement possible\n"
-            f"Délais possible entre ***24-48h***"
+            f"🎟️ Sélectionnez la catégorie dont vous avez besoin.\n"
+            f"⚠️ Tout ***troll*** ou ***Irrespect*** sera suivie d'un ban.\n"
+            f"Un Staff vous répondra le plus rapidement possible 😉\n"
+            f"🕒 Délais possible entre ***24-48h***"
         )
         await interaction.channel.send(content=content, view=view)
         await interaction.response.send_message("✅ Menu de ticket créé.", ephemeral=False)
