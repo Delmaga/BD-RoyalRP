@@ -1,3 +1,4 @@
+# main.py
 import discord
 from discord.ext import commands
 import os
@@ -5,7 +6,7 @@ import aiohttp
 from dotenv import load_dotenv
 from utils.db import init_db
 
-# ✅ Import de la classe (sans instancier)
+# Import de la classe
 from cogs.ticket import CloseTicketButton
 
 load_dotenv()
@@ -17,14 +18,29 @@ intents = discord.Intents.default()
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-# ✅ Enregistrer la CLASSE (pas une instance)
-bot.add_view(CloseTicketButton)  # ← PAS de ()
+# ⚠️ NE PAS faire bot.add_view ici
 
 @bot.event
 async def on_ready():
+    # ✅ Créer la session HTTP
     bot.session = aiohttp.ClientSession()
+
+    # ✅ Enregistrer la vue persistante DANS on_ready (event loop active)
+    bot.add_view(CloseTicketButton())  # ← ICI, avec ()
+
+    # Initialiser la DB
     await init_db()
-    # ... chargement des cogs ...
+
+    # Charger les cogs
+    for filename in os.listdir("./cogs"):
+        if filename.endswith(".py"):
+            try:
+                await bot.load_extension(f"cogs.{filename[:-3]}")
+            except Exception as e:
+                print(f"❌ Erreur chargement {filename}: {e}")
+
+    # Synchroniser les commandes
+    await bot.tree.sync()
     print(f"✅ Royal Bot connecté : {bot.user}")
 
 if __name__ == "__main__":
