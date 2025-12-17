@@ -72,15 +72,13 @@ async def init_db():
         await db.execute("""
             CREATE TABLE IF NOT EXISTS security_config (
                 guild_id TEXT PRIMARY KEY,
-                anti_spam INTEGER DEFAULT 0,
-                anti_links INTEGER DEFAULT 0,
+                enabled INTEGER DEFAULT 0,          -- 1 = sécurité activée
                 logs_spam TEXT,
                 logs_links TEXT,
                 logs_messages TEXT,
                 logs_vocal TEXT,
                 logs_moderation TEXT,
-                logs_suspect TEXT,
-                hardened INTEGER DEFAULT 0
+                logs_suspect TEXT
             )
         """)
 
