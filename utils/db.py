@@ -6,10 +6,10 @@ import os
 DB_PATH = os.getenv("DATABASE_URL", "royal_bot.db")
 
 async def init_db():
-    """Crée toutes les tables nécessaires au démarrage."""
+    """Crée toutes les tables nécessaires au démarrage du bot."""
     async with aiosqlite.connect(DB_PATH) as db:
 
-        # ---------- MODÉRATION ----------
+        # ========== MODÉRATION ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS moderation (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,7 +23,7 @@ async def init_db():
             )
         """)
 
-        # ---------- AVIS ----------
+        # ========== AVIS ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS avis (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,7 +35,6 @@ async def init_db():
                 timestamp INTEGER NOT NULL
             )
         """)
-
         await db.execute("""
             CREATE TABLE IF NOT EXISTS avis_config (
                 guild_id TEXT PRIMARY KEY,
@@ -44,7 +43,7 @@ async def init_db():
             )
         """)
 
-        # ---------- WELCOME ----------
+        # ========== WELCOME ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS welcome_config (
                 guild_id TEXT PRIMARY KEY,
@@ -53,7 +52,7 @@ async def init_db():
             )
         """)
 
-        # ---------- TICKETS ----------
+        # ========== TICKETS ==========
         await db.execute("""
             CREATE TABLE IF NOT EXISTS ticket_categories (
                 guild_id TEXT NOT NULL,
@@ -61,12 +60,27 @@ async def init_db():
                 PRIMARY KEY (guild_id, name)
             )
         """)
-
         await db.execute("""
             CREATE TABLE IF NOT EXISTS ticket_config (
                 guild_id TEXT PRIMARY KEY,
                 ping_role_id TEXT,
                 ticket_counter INTEGER DEFAULT 1
+            )
+        """)
+
+        # ========== SÉCURITÉ (NOUVEAU) ==========
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS security_config (
+                guild_id TEXT PRIMARY KEY,
+                anti_spam INTEGER DEFAULT 0,
+                anti_links INTEGER DEFAULT 0,
+                logs_spam TEXT,
+                logs_links TEXT,
+                logs_messages TEXT,
+                logs_vocal TEXT,
+                logs_moderation TEXT,
+                logs_suspect TEXT,
+                hardened INTEGER DEFAULT 0
             )
         """)
 
