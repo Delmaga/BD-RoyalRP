@@ -5,6 +5,8 @@ import os
 import aiohttp
 from dotenv import load_dotenv
 from utils.db import init_db
+
+# IMPORT DE LA CLASSE SEULEMENT (pas d'instance ici)
 from cogs.ticket import CloseTicketButton
 
 load_dotenv()
@@ -19,12 +21,17 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 bot.session = None
-bot.add_view(CloseTicketButton())
+
+# ⚠️ IL NE DOIT Y AVOIR AUCUN bot.add_view ICI ⚠️
 
 @bot.event
 async def on_ready():
     bot.session = aiohttp.ClientSession()
     await init_db()
+    
+    # ✅ SEULEMENT ICI : enregistrer la vue persistante
+    bot.add_view(CloseTicketButton())
+    
     for filename in os.listdir("./cogs"):
         if filename.endswith(".py"):
             try:
