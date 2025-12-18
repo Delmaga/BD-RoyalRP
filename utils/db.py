@@ -6,7 +6,6 @@ DB_PATH = os.getenv("DATABASE_URL", "royal_bot.db")
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
-
         # Modération
         await db.execute("""
             CREATE TABLE IF NOT EXISTS moderation (
@@ -66,7 +65,7 @@ async def init_db():
             )
         """)
 
-        # 🔒 SÉCURITÉ — TOUT EN UN
+        # Sécurité
         await db.execute("""
             CREATE TABLE IF NOT EXISTS security_config (
                 guild_id TEXT PRIMARY KEY,
@@ -76,7 +75,6 @@ async def init_db():
                 logs_links TEXT,
                 logs_messages TEXT,
                 logs_vocal TEXT,
-                logs_moderation TEXT,
                 logs_suspect TEXT,
                 logs_admin TEXT
             )
